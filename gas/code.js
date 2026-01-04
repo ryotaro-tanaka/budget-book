@@ -6,8 +6,9 @@ function doPost(e) {
   const data = JSON.parse(e.parameter.payload);
 
   const handlers = {
-    upload: () => handleUpload((data)),
-    expense: () => (appendExpenseRow((data)), { ok: true })
+    upload: () => handleUpload(data),
+    expense: () => (appendExpenseRow(data), { ok: true }),
+    expense_with_upload: () => handleExpenseWithUpload_(data)
   };
 
   const fn = handlers[data.action];
@@ -87,4 +88,30 @@ function appendExpenseRow(expense) {
     expense.image_file_id || "",
     expense.category || ""
   ]);
+}
+
+/**
+ * @param {ExpenseWithUploadRequest} data
+ * @returns {ExpenseWithUploadResponse}
+ */
+function handleExpenseWithUpload_(data) {
+  let uploadResult = null;
+
+  if (data.base64) {
+    uploadResult = handleUpload(data);
+
+    if (uploadResult.ok) {
+      data.image_url = uploadResult.image_url;
+      data.image_file_id = uploadResult.image_file_id;
+    }
+  }
+
+  appendExpenseRow(data);
+
+  return {
+    ok: true,
+    upload: uploadResult
+      ? uploadResult
+      : { ok: false, skipped: true }
+  };
 }
