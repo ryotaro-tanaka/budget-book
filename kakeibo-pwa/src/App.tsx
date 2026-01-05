@@ -1,23 +1,10 @@
 import { useMemo, useState } from "react";
 
-/* ========= 型定義 ========= */
-
-type UploadResult =
-  | { ok: true; image_file_id: string; image_url: string }
-  | { ok: false; error: string };
-
-type ExpenseResult =
-  | { ok: true }
-  | { ok: false; error: string };
-
+const TOKEN = import.meta.env.VITE_KAKEIBO_TOKEN as string | undefined;
 type Category = "dining_out" | "groceries" | "other";
-
-/* ========= 定数 ========= */
 
 const GAS_ENDPOINT =
   "https://script.google.com/macros/s/AKfycbxdq4fcooY1RC-BH8v4Nw7NgoXiNSwp1DotEv2U2eqFmkGI2L9ZCH0FoXWAamVPt_Hm/exec";
-
-/* ========= ユーティリティ ========= */
 
 function todayYYYYMMDD(): string {
   const d = new Date();
@@ -34,44 +21,29 @@ function fileToBase64(file: File): Promise<string> {
     reader.onload = () => {
       const result = String(reader.result || "");
       const idx = result.indexOf(",");
-      if (idx < 0) {
-        reject(new Error("InvalidDataURL"));
-        return;
-      }
+      if (idx < 0) return reject(new Error("InvalidDataURL"));
       resolve(result.slice(idx + 1));
     };
     reader.readAsDataURL(file);
   });
 }
 
-/**
- * GAS doPost は e.parameter.payload を JSON.parse しているため
- * application/x-www-form-urlencoded で payload=JSON を送る
- */
-async function postPayload<T>(
-  endpoint: string,
-  payloadObj: unknown
-): Promise<T> {
-  const body = new URLSearchParams();
-  body.set("payload", JSON.stringify(payloadObj));
+function submitPayloadByForm(endpoint: string, payload: unknown) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = endpoint;
+  form.target = "_top";
+  form.style.display = "none";
 
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body,
-  });
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "payload";
+  input.value = JSON.stringify(payload);
 
-  const text = await res.text();
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(`NonJSONResponse: ${text.slice(0, 200)}`);
-  }
+  form.appendChild(input);
+  document.body.appendChild(form);
+  form.submit();
 }
-
-/* ========= App ========= */
 
 export default function App() {
   const [date, setDate] = useState<string>(todayYYYYMMDD());
@@ -79,127 +51,59 @@ export default function App() {
   const [category, setCategory] = useState<Category>("groceries");
   const [file, setFile] = useState<File | null>(null);
 
-  const [status, setStatus] = useState<
-    "idle" | "uploading" | "saving" | "done" | "error"
-  >("idle");
+  const [status, setStatus] = useState<"idle" | "reading">("idle");
   const [message, setMessage] = useState<string>("");
 
-  /* ========= Saveボタン活性条件 ========= */
   const canSubmit = useMemo(() => {
     const n = Number(amount);
-    return (
-      date.trim() !== "" &&
-      isFinite(n) &&
-      n > 0 &&
-      status !== "uploading" &&
-      status !== "saving"
-    );
+    return date.trim() !== "" && isFinite(n) && n > 0 && status !== "reading";
   }, [date, amount, status]);
 
-  /* ========= 送信処理 ========= */
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage("");
-    setStatus("idle");
 
     const n = Number(amount);
     if (!isFinite(n) || n <= 0) {
-      setStatus("error");
       setMessage("金額が不正です");
       return;
     }
 
-    try {
-      let image_url = "";
-      let image_file_id = "";
+    setStatus("reading");
 
-      /* --- 画像がある場合のみ upload --- */
-      if (file) {
-        setStatus("uploading");
+    const basePayload: any = {
+      action: "expense_with_upload",
+      date,
+      amount: n,
+      category,
+      return_to: `${window.location.origin}/result`,
+      token: TOKEN || undefined,
+    };
 
+    // 画像は任意：あればbase64を詰める
+    if (file) {
+      try {
         const base64 = await fileToBase64(file);
-        const uploadPayload = {
-          action: "upload",
-          date,
-          amount: n,
-          mime_type: file.type || "image/jpeg",
-          base64,
-        };
-
-        const uploadRes = await postPayload<UploadResult>(
-          GAS_ENDPOINT,
-          uploadPayload
-        );
-
-        if (!uploadRes.ok) {
-          setStatus("error");
-          setMessage(`Upload failed: ${uploadRes.error}`);
-          return;
-        }
-
-        image_url = uploadRes.image_url;
-        image_file_id = uploadRes.image_file_id;
+        basePayload.base64 = base64;
+        basePayload.mime_type = file.type || "image/jpeg";
+      } catch {
+        // 画像読み取り失敗：画像なしで送る（あなたのテストHTMLと同じ挙動）
+        // ここは「知らせたい」なら setMessage して送信中断もできる
       }
-
-      /* --- expense は必ず実行 --- */
-      setStatus("saving");
-
-      const expensePayload = {
-        action: "expense",
-        date,
-        amount: n,
-        category,
-        image_url,
-        image_file_id,
-      };
-
-      const expenseRes = await postPayload<ExpenseResult>(
-        GAS_ENDPOINT,
-        expensePayload
-      );
-
-      if (!expenseRes.ok) {
-        setStatus("error");
-        setMessage(`Expense failed: ${expenseRes.error}`);
-        return;
-      }
-
-      setStatus("done");
-      setMessage("保存しました ✅");
-
-      setAmount("");
-      setCategory("groceries");
-      setFile(null);
-    } catch (err) {
-      setStatus("error");
-      setMessage(String(err instanceof Error ? err.message : err));
     }
+
+    // ここで遷移が起きる（GASが/resultへ戻してくれる想定）
+    submitPayloadByForm(GAS_ENDPOINT, basePayload);
   }
 
-  /* ========= UI ========= */
-
   return (
-    <div
-      style={{
-        maxWidth: 520,
-        margin: "32px auto",
-        padding: 16,
-        fontFamily: "system-ui, sans-serif",
-      }}
-    >
-      <h1 style={{ fontSize: 22, marginBottom: 16 }}>
-        家計簿（最小UI）
-      </h1>
+    <div style={{ maxWidth: 520, margin: "32px auto", padding: 16, fontFamily: "system-ui, sans-serif" }}>
+      <h1 style={{ fontSize: 22, marginBottom: 16 }}>家計簿（入力）</h1>
 
       <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
         <label style={{ display: "grid", gap: 6 }}>
           <span>Date</span>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            required
-          />
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
         </label>
 
         <label style={{ display: "grid", gap: 6 }}>
@@ -217,10 +121,7 @@ export default function App() {
 
         <label style={{ display: "grid", gap: 6 }}>
           <span>Category</span>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value as Category)}
-          >
+          <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>
             <option value="groceries">groceries</option>
             <option value="dining_out">dining_out</option>
             <option value="other">other</option>
@@ -229,43 +130,15 @@ export default function App() {
 
         <label style={{ display: "grid", gap: 6 }}>
           <span>Receipt image（任意）</span>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-          />
-          {file && (
-            <small style={{ opacity: 0.8 }}>
-              {file.name}（{Math.round(file.size / 1024)} KB）
-            </small>
-          )}
+          <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </label>
 
-        <button
-          type="submit"
-          disabled={!canSubmit}
-          style={{
-            padding: "10px 12px",
-            cursor: canSubmit ? "pointer" : "not-allowed",
-          }}
-        >
-          {status === "uploading"
-            ? "Uploading..."
-            : status === "saving"
-            ? "Saving..."
-            : "Save"}
+        <button type="submit" disabled={!canSubmit} style={{ padding: "10px 12px" }}>
+          {status === "reading" ? "Preparing..." : "Save"}
         </button>
 
         {message && (
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 8,
-              background: status === "error" ? "#ffe5e5" : "#e9ffe5",
-              border: "1px solid rgba(0,0,0,0.1)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
+          <div style={{ padding: 12, borderRadius: 8, background: "#ffe5e5", whiteSpace: "pre-wrap" }}>
             {message}
           </div>
         )}

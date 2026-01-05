@@ -29,15 +29,11 @@
 /**
  * @typedef {Object} ExpenseWithUploadRequest
  * @property {"expense_with_upload"} action
+ * @property {string} token
+ * @property {string} return_to
  * @property {string} date
  * @property {number} amount
  * @property {string=} category
  * @property {string=} base64
  * @property {string=} mime_type
- */
-
-/**
- * @typedef {Object} ExpenseWithUploadResponse
- * @property {boolean} ok
- * @property {UploadResult} upload success / failure / skipped
  */
