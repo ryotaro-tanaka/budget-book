@@ -4,7 +4,7 @@ const TOKEN = import.meta.env.VITE_KAKEIBO_TOKEN as string | undefined;
 
 type Category = "dining_out" | "groceries" | "other";
 
-type MerchantPreset = "Woolworths" | "ALDI" | "Coles" | "Asian shop" | "Other";
+type MerchantPreset = "ALDI" | "Woolworths" | "Coles" | "Asian shop" | "Other";
 
 type ExpenseWithUploadBase = {
   action: "expense_with_upload";
