@@ -8,6 +8,7 @@ function appendExpenseRow(expense) {
     Number(expense.amount),
     expense.image_url || "",
     expense.image_file_id || "",
-    expense.category || ""
+    expense.category || "",
+    expense.merchant || ""
   ]);
 }

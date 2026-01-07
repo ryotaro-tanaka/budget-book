@@ -6,6 +6,7 @@
  * @property {string=} image_url
  * @property {string=} image_file_id
  * @property {string=} category
+ * @property {string=} merchant
  */
 
 /**
@@ -34,6 +35,7 @@
  * @property {string} date
  * @property {number} amount
  * @property {string=} category
+ * @property {string=} merchant
  * @property {string=} base64
  * @property {string=} mime_type
  */
