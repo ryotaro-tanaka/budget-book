@@ -4,11 +4,14 @@ const TOKEN = import.meta.env.VITE_KAKEIBO_TOKEN as string | undefined;
 
 type Category = "dining_out" | "groceries" | "other";
 
+type MerchantPreset = "Woolworths" | "ALDI" | "Coles" | "Asian shop" | "Other";
+
 type ExpenseWithUploadBase = {
   action: "expense_with_upload";
   date: string;
   amount: number;
   category?: Category;
+  merchant?: string;
   return_to: string;
   token?: string;
 };
@@ -76,10 +79,20 @@ function formatAud(amount: string): string {
   }
 }
 
+function normalizeMerchant(preset: MerchantPreset, custom: string): string | undefined {
+  if (preset !== "Other") return preset;
+  const s = custom.trim();
+  return s ? s : undefined;
+}
+
 export default function App() {
   const [date, setDate] = useState<string>(todayYYYYMMDD());
   const [amount, setAmount] = useState<string>("");
   const [category, setCategory] = useState<Category>("groceries");
+
+  const [merchantPreset, setMerchantPreset] = useState<MerchantPreset>("Woolworths");
+  const [merchantCustom, setMerchantCustom] = useState<string>("");
+
   const [file, setFile] = useState<File | null>(null);
 
   const [status, setStatus] = useState<"idle" | "reading">("idle");
@@ -104,6 +117,14 @@ export default function App() {
       return;
     }
 
+    const merchant = normalizeMerchant(merchantPreset, merchantCustom);
+
+    // Optional: if user selected Other, require a custom merchant
+    if (merchantPreset === "Other" && !merchant) {
+      setMessage("Please enter a merchant name (or choose a preset).");
+      return;
+    }
+
     setStatus("reading");
 
     let payload: ExpenseWithUploadRequest = {
@@ -111,6 +132,7 @@ export default function App() {
       date,
       amount: n,
       category,
+      merchant,
       return_to: `${window.location.origin}/result`,
       token: TOKEN || undefined,
     };
@@ -125,12 +147,10 @@ export default function App() {
           mime_type: file.type || "image/jpeg",
         };
       } catch {
-        // Requirement: if user selected an image but reading fails, notify and send without image
         setMessage("Failed to read image; sending without image.");
       }
     }
 
-    // Navigates away (GAS should redirect back to /result)
     submitPayloadByForm(GAS_ENDPOINT, payload);
   }
 
@@ -151,10 +171,7 @@ export default function App() {
       WebkitFontSmoothing: "antialiased" as const,
       MozOsxFontSmoothing: "grayscale" as const,
     },
-    container: {
-      maxWidth: 520,
-      margin: "0 auto",
-    },
+    container: { maxWidth: 520, margin: "0 auto" },
     header: {
       display: "flex",
       alignItems: "flex-end",
@@ -190,7 +207,7 @@ export default function App() {
       border: "1px solid rgba(15, 23, 42, 0.12)",
       background: "rgba(255,255,255,0.95)",
       padding: "0 12px",
-      fontSize: 16, // iOS zoom prevention
+      fontSize: 16,
       outline: "none",
       boxSizing: "border-box" as const,
       appearance: "none" as const,
@@ -209,6 +226,11 @@ export default function App() {
       pointerEvents: "none" as const,
       opacity: 0.45,
       fontSize: 14,
+    },
+    twoCol: {
+      display: "grid",
+      gap: 10,
+      gridTemplateColumns: "1fr 1fr",
     },
     fileRow: {
       display: "flex",
@@ -250,11 +272,7 @@ export default function App() {
       boxShadow: "0 12px 24px rgba(15,23,42,0.18)",
       cursor: "pointer",
     },
-    primaryBtnDisabled: {
-      opacity: 0.45,
-      cursor: "not-allowed",
-      boxShadow: "none",
-    },
+    primaryBtnDisabled: { opacity: 0.45, cursor: "not-allowed", boxShadow: "none" },
     alert: {
       marginTop: 12,
       padding: 12,
@@ -282,7 +300,9 @@ export default function App() {
     dot: { width: 8, height: 8, borderRadius: 999, background: "rgba(34,197,94,0.9)" },
   };
 
-  const [focus, setFocus] = useState<null | "date" | "amount" | "category">(null);
+  const [focus, setFocus] = useState<
+    null | "date" | "amount" | "category" | "merchantPreset" | "merchantCustom"
+  >(null);
 
   return (
     <div style={styles.page}>
@@ -363,6 +383,55 @@ export default function App() {
                   <option value="other">Other</option>
                 </select>
                 <span style={styles.selectChevron}>▾</span>
+              </div>
+            </div>
+
+            <div style={styles.field}>
+              <div style={styles.labelRow}>
+                <span style={styles.label}>Merchant</span>
+                <span style={styles.hint}>Optional</span>
+              </div>
+
+              <div style={styles.twoCol}>
+                <div style={styles.selectWrap}>
+                  <select
+                    value={merchantPreset}
+                    onChange={(e) => {
+                      const v = e.target.value as MerchantPreset;
+                      setMerchantPreset(v);
+                      if (v !== "Other") setMerchantCustom("");
+                    }}
+                    style={{
+                      ...styles.control,
+                      paddingRight: 36,
+                      ...(focus === "merchantPreset" ? styles.controlFocus : {}),
+                    }}
+                    onFocus={() => setFocus("merchantPreset")}
+                    onBlur={() => setFocus(null)}
+                  >
+                    <option value="Woolworths">Woolworths</option>
+                    <option value="ALDI">ALDI</option>
+                    <option value="Coles">Coles</option>
+                    <option value="Asian shop">Asian shop</option>
+                    <option value="Other">Other…</option>
+                  </select>
+                  <span style={styles.selectChevron}>▾</span>
+                </div>
+
+                <input
+                  type="text"
+                  value={merchantCustom}
+                  onChange={(e) => setMerchantCustom(e.target.value)}
+                  placeholder={merchantPreset === "Other" ? "Type merchant name" : "—"}
+                  disabled={merchantPreset !== "Other"}
+                  style={{
+                    ...styles.control,
+                    opacity: merchantPreset !== "Other" ? 0.55 : 1,
+                    ...(focus === "merchantCustom" ? styles.controlFocus : {}),
+                  }}
+                  onFocus={() => setFocus("merchantCustom")}
+                  onBlur={() => setFocus(null)}
+                />
               </div>
             </div>
 
